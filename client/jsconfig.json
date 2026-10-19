@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "forceConsistentCasingInFileNames": false
+  },
+  "include": ["src"]
+}

@@ -1,0 +1,88 @@
+{
+  "cube20_binary.stl": {
+    "triangles": 12,
+    "volume_mm3": 8000.0,
+    "surface_area_mm2": 2400.0,
+    "bbox_min": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "bbox_max": [
+      20.0,
+      20.0,
+      20.0
+    ],
+    "center_of_mass": [
+      10.0,
+      10.0,
+      10.0
+    ],
+    "watertight": true
+  },
+  "cube20_ascii.stl": {
+    "triangles": 12,
+    "volume_mm3": 8000.0,
+    "surface_area_mm2": 2400.0,
+    "bbox_min": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "bbox_max": [
+      20.0,
+      20.0,
+      20.0
+    ],
+    "center_of_mass": [
+      10.0,
+      10.0,
+      10.0
+    ],
+    "watertight": true
+  },
+  "sphere_r10.stl": {
+    "triangles": 2208,
+    "volume_mm3": 4158.9714,
+    "surface_area_mm2": 1252.1562,
+    "bbox_min": [
+      -10.0,
+      -10.0,
+      -10.0
+    ],
+    "bbox_max": [
+      10.0,
+      10.0,
+      10.0
+    ],
+    "center_of_mass": [
+      -0.0,
+      -0.0,
+      0.0
+    ],
+    "watertight": true,
+    "note": "Faceted sphere (48x24). Perfect sphere would be 4188.79 mm3 / 1256.64 mm2; the mesh is slightly smaller."
+  },
+  "hollow_cube.stl": {
+    "triangles": 24,
+    "volume_mm3": 7000.0,
+    "surface_area_mm2": 3000.0,
+    "bbox_min": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "bbox_max": [
+      20.0,
+      20.0,
+      20.0
+    ],
+    "center_of_mass": [
+      10.0,
+      10.0,
+      10.0
+    ],
+    "watertight": true,
+    "note": "20 mm cube with a 10 mm hollow cavity; inner faces point into the cavity so their volume subtracts."
+  }
+}

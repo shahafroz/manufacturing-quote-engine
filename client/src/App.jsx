@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
-import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import ModelViewer from './ModelViewer.jsx';
+import * as THREE from 'three';
+import { parseStl } from './engine/parseStl.js';
 const API = import.meta.env.VITE_API_URL;
 
 export default function App() {
@@ -20,12 +21,14 @@ export default function App() {
     setFile(picked);
 
     const buffer = await picked.arrayBuffer();
-    const geo = new STLLoader().parse(buffer);
+    const positions = parseStl(buffer);
+    console.log('triangles:', positions.length / 9);
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.computeVertexNormals();
     geo.center();
     geo.computeBoundingSphere();
-
-    console.log('triangles:', geo.attributes.position.count / 3);
-    console.log('radius:', geo.boundingSphere.radius);
     setGeometry(geo);
   }
 
