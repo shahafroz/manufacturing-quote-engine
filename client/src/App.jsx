@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ModelViewer from './ModelViewer.jsx';
 import Dropzone from './components/Dropzone.jsx';
+import Landing from './components/Landing.jsx';
 import StatsPanel from './components/StatsPanel.jsx';
 import MeshHealth from './components/MeshHealth.jsx';
+import Checks from './components/Checks.jsx';
+import LockedQuote from './components/LockedQuote.jsx';
 import QuoteTable from './components/QuoteTable.jsx';
 import Advisor from './components/Advisor.jsx';
 import History from './components/History.jsx';
@@ -29,8 +32,13 @@ export default function App() {
   const [advice, setAdvice] = useState(null);
   const [showOverhangs, setShowOverhangs] = useState(true);
   const [layerIndex, setLayerIndex] = useState(null);
-  const [saved, setSaved] = useState('');
   const [s3Key, setS3Key] = useState(null);
+  const [thin, setThin] = useState(null); // thin-wall result (arrives a moment after the rest)
+  const [repairReport, setRepairReport] = useState(null);
+  const [notice, setNotice] = useState('');
+  const [locked, setLocked] = useState(null); // saved, server-verified quote
+  const [saving, setSaving] = useState(false);
+  const exportWaiters = useRef(new Map());
 
   const worker = useRef(null);
   const viewerRef = useRef(null);
@@ -49,17 +57,37 @@ export default function App() {
         setBusy(false);
       } else if (m.type === 'analyzed') {
         setPositions(m.positions);
-        setAnalysis({ geometry: m.geometry, validation: m.validation, overhang: m.overhang, timings: m.timings });
+        setAnalysis({
+          geometry: m.geometry,
+          validation: m.validation,
+          overhang: m.overhang,
+          units: m.units,
+          buildVolume: m.buildVolume,
+          addedMask: m.addedMask,
+          timings: m.timings,
+        });
+        setThin(null);
+        setLocked(null); // the part changed, so any saved quote no longer matches it
         if (m.orientation) setOrientation(m.orientation);
+        if (m.repair) setRepairReport(m.repair);
+        if (m.notice) setNotice(m.notice);
         setLayerIndex(null);
         setBusy(false);
+      } else if (m.type === 'thin') {
+        setThin({ ...m.thin, ms: m.ms });
       } else if (m.type === 'estimated') {
         setEstimate(m);
+      } else if (m.type === 'exported') {
+        exportWaiters.current.get(m.requestId)?.(m.buffer);
+        exportWaiters.current.delete(m.requestId);
       }
     };
     worker.current = w;
     return () => w.terminate();
   }, []);
+
+  // A locked quote is for specific settings: changing them means it has to be saved again
+  useEffect(() => setLocked(null), [settings]);
 
   // Re-slice whenever the part or the print settings change
   useEffect(() => {
@@ -71,23 +99,43 @@ export default function App() {
     return () => clearTimeout(t);
   }, [analysis, settings.layerHeight, settings.infill]);
 
-  // Ask the server to price every material whenever estimates or quantity change
+  // Ask the server to price every material whenever estimates or quantity change.
+  // Retries a few times, so a server that is restarting (or a sleeping free-tier host) doesn't
+  // show an error straight away.
   useEffect(() => {
     if (!estimate || !analysis) return;
-    api
-      .post('/api/quote', {
-        volume: analysis.geometry.volume,
-        surfaceArea: analysis.geometry.surfaceArea,
-        print: { extrudedVolume: estimate.print.extrudedVolume, timeS: estimate.print.timeS },
-        cnc: {
-          stockVolume: estimate.cnc.stockVolume,
-          setups: estimate.cnc.setups,
-          machiningMin: Object.fromEntries(Object.entries(estimate.cnc.perMaterial).map(([k, v]) => [k, v.machiningMin])),
-        },
-        quantity: settings.quantity,
-      })
-      .then(({ data }) => setRows(data.rows))
-      .catch((err) => setError(`Pricing failed: ${errorText(err)}`));
+    let cancelled = false;
+    const body = {
+      volume: analysis.geometry.volume,
+      surfaceArea: analysis.geometry.surfaceArea,
+      print: { extrudedVolume: estimate.print.extrudedVolume, timeS: estimate.print.timeS },
+      cnc: {
+        stockVolume: estimate.cnc.stockVolume,
+        setups: estimate.cnc.setups,
+        machiningMin: Object.fromEntries(Object.entries(estimate.cnc.perMaterial).map(([k, v]) => [k, v.machiningMin])),
+      },
+      quantity: settings.quantity,
+    };
+    (async () => {
+      for (let attempt = 1; attempt <= 4; attempt++) {
+        try {
+          const { data } = await api.post('/api/quote', body);
+          if (!cancelled) setRows(data.rows);
+          return;
+        } catch (err) {
+          const retryable = !err.response || err.response.status >= 502;
+          if (cancelled) return;
+          if (!retryable || attempt === 4) {
+            setError(`Pricing failed: ${errorText(err)}. Is the server running?`);
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [estimate, analysis, settings.quantity]);
 
   const onFile = useCallback(async (f) => {
@@ -102,8 +150,11 @@ export default function App() {
     setEstimate(null);
     setAdvice(null);
     setOrientation(null);
-    setSaved('');
     setS3Key(null);
+    setThin(null);
+    setRepairReport(null);
+    setNotice('');
+    setLocked(null);
     const buffer = await f.arrayBuffer();
     worker.current.postMessage({ type: 'analyze', buffer }, [buffer]);
 
@@ -118,27 +169,57 @@ export default function App() {
       .catch(() => {});
   }, []);
 
-  function autoOrient() {
-    setBusy(true);
-    worker.current.postMessage({ type: 'orient' });
+  async function loadSample() {
+    try {
+      const res = await fetch('/samples/l-bracket.stl');
+      onFile(new File([await res.blob()], 'l-bracket.stl'));
+    } catch {
+      setError('Could not load the sample part.');
+    }
   }
 
+  // Changes to the mesh all run in the worker, which then re-analyzes and sends everything back
+  const send = (msg) => {
+    setBusy(true);
+    worker.current.postMessage(msg);
+  };
+  const autoOrient = () => send({ type: 'orient' });
+  const scaleBy = (factor) => send({ type: 'scale', factor });
+  const rotateToFit = () => send({ type: 'fit', up: analysis.buildVolume.up });
+  const repair = () => send({ type: 'repair' });
+
+  // Ask the worker for the current mesh as a binary STL
+  function exportMesh() {
+    return new Promise((resolve) => {
+      const requestId = Math.random().toString(36).slice(2);
+      exportWaiters.current.set(requestId, resolve);
+      worker.current.postMessage({ type: 'export', requestId });
+    });
+  }
+
+  // Save a LOCKED quote: we send the actual mesh, and the server re-computes the price itself
   async function saveQuote() {
+    setSaving(true);
     try {
-      const { data } = await api.post('/api/quotes', {
-        fileName: file.name,
-        s3Key,
-        geometry: { ...analysis.geometry },
-        validation: { ...analysis.validation, badEdgePositions: undefined },
-        settings,
-        print: { timeS: estimate.print.timeS, extrudedVolume: estimate.print.extrudedVolume, layers: estimate.print.layers },
-        cnc: { stockVolume: estimate.cnc.stockVolume, setups: estimate.cnc.setups },
-        rows,
-        recommendation: advice,
+      const stl = await exportMesh();
+      const { data } = await api.post('/api/quotes', stl, {
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'x-quote-options': JSON.stringify({
+            fileName: file.name,
+            s3Key,
+            settings,
+            recommendation: advice,
+            clientCheapestTotal: rows?.[0]?.total,
+          }),
+        },
       });
-      setSaved(`Saved (${data.storage === 'mongodb' ? 'MongoDB' : 'server memory'})`);
+      setLocked(data);
+      setRows(data.rows); // the server's prices are the ones that count
     } catch (err) {
       setError(`Save failed: ${errorText(err)}`);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -150,6 +231,7 @@ export default function App() {
       settings,
       rows,
       advice,
+      locked,
       canvas: viewerRef.current?.querySelector('canvas'),
     });
   }
@@ -170,10 +252,10 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          <span className="logo">◆</span>
+          <span className="logo" aria-hidden="true">M</span>
           <div>
             <h1>Manufacturing Quote Engine</h1>
-            <p>STL → geometry, mesh check, slicing and instant 3D-print / CNC quote</p>
+            <p>Instant 3D printing &amp; CNC quotes</p>
           </div>
         </div>
         <nav>
@@ -189,7 +271,7 @@ export default function App() {
         <main className="single"><History /></main>
       ) : !positions ? (
         <main className="single">
-          <Dropzone onFile={onFile} busy={busy} />
+          <Landing onFile={onFile} onSample={loadSample} busy={busy} />
         </main>
       ) : (
         <main className="layout">
@@ -199,17 +281,29 @@ export default function App() {
                 positions={positions}
                 geometryInfo={analysis.geometry}
                 overhangMask={analysis.overhang.mask}
+                thinMask={thin?.mask}
+                addedMask={analysis.addedMask}
                 showOverhangs={showOverhangs && !layer}
                 badEdges={analysis.validation.badEdgePositions}
                 layer={layer}
+                printer={analysis.buildVolume.printer}
+                fits={analysis.buildVolume.fits}
               />
               <div className="viewer-tools">
                 <label className="check">
                   <input type="checkbox" checked={showOverhangs} onChange={(e) => setShowOverhangs(e.target.checked)} />
-                  Overhangs
+                  Highlights
                 </label>
                 <button onClick={autoOrient} disabled={busy}>{busy ? 'Working…' : 'Auto-orient'}</button>
               </div>
+              {showOverhangs && !layer && (
+                <div className="legend">
+                  <span><i style={{ background: '#f59e0b' }} />needs support</span>
+                  <span><i style={{ background: '#e5484d' }} />too thin</span>
+                  {analysis.addedMask && <span><i style={{ background: '#22c55e' }} />repaired</span>}
+                  <span><i style={{ background: '#ff2d55', height: 2 }} />open edge</span>
+                </div>
+              )}
             </div>
 
             {estimate && (
@@ -239,7 +333,24 @@ export default function App() {
 
           <section className="right">
             <StatsPanel file={file} geometry={analysis.geometry} timings={{ ...analysis.timings, ...(estimate?.timings || {}) }} />
-            <MeshHealth validation={analysis.validation} inverted={analysis.geometry.inverted} />
+            {notice && <div className="banner info" onClick={() => setNotice('')}>{notice} ✕</div>}
+            <Checks
+              units={analysis.units}
+              buildVolume={analysis.buildVolume}
+              size={analysis.geometry.bbox.size}
+              thin={thin}
+              watertight={analysis.validation.watertight}
+              busy={busy}
+              onScale={scaleBy}
+              onFit={rotateToFit}
+            />
+            <MeshHealth
+              validation={analysis.validation}
+              inverted={analysis.geometry.inverted}
+              report={repairReport}
+              onRepair={repair}
+              busy={busy}
+            />
 
             <section className="card">
               <h3>Printability</h3>
@@ -271,7 +382,7 @@ export default function App() {
               <div className="card-head">
                 <h3>Quote</h3>
                 <div className="actions">
-                  <button onClick={saveQuote} disabled={!rows}>Save quote</button>
+                  <button onClick={saveQuote} disabled={!rows || saving || busy}>{saving ? 'Locking…' : locked ? 'Saved ✓' : 'Lock & save quote'}</button>
                   <button onClick={pdf} disabled={!rows}>Download PDF</button>
                 </div>
               </div>
@@ -296,7 +407,7 @@ export default function App() {
                 </label>
               </div>
               {rows ? <QuoteTable rows={rows} recommended={advice?.materialId} quantity={settings.quantity} /> : <p className="muted">Slicing and pricing…</p>}
-              {saved && <p className="note">{saved}</p>}
+              {locked && <LockedQuote quote={locked} />}
             </section>
 
             <Advisor summary={summary} onPick={setAdvice} />

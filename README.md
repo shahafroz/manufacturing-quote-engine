@@ -11,11 +11,16 @@ Upload an STL, inspect it in 3D, and get an instant quote for **3D printing and 
 - **Parses STL by hand** (binary and ASCII): 80-byte header, triangle count, 50 bytes per triangle
 - **Geometry:** volume (signed tetrahedron sum), surface area, bounding box, center of mass
 - **Mesh validation:** welds vertices, builds an edge map and finds holes, non-manifold edges, flipped faces and zero-area triangles, drawn in red in the viewer
+- **Automatic repair:** removes zero-area triangles, makes neighbouring faces agree (walks the mesh and flips mismatches), turns inside-out parts right side out, and closes holes by following their open edges and fanning them shut. Repaired faces are shown in green
+- **Wrong units:** a part only a few mm across was probably modelled in inches, cm or metres; one click rescales it
+- **Printer fit:** checks the part against the build volume (Prusa MK4, 250 × 210 × 220 mm), and if it only fits on its side, finds the lowest orientation that fits
+- **Thin walls:** casts a ray inward from every face to measure local wall thickness (grid-accelerated Möller–Trumbore) and paints walls under 0.8 mm red
 - **Overhangs:** faces steeper than 45° turn red; support volume is estimated by projecting them down to the build plate
 - **Auto-orientation:** tries 26 "up" directions and picks the one with the least support and height
 - **Mini slicer:** cuts every layer with a plane, stitches the segments into closed loops and shows them on a layer slider
 - **Estimates:** print time and filament from the sliced paths (with acceleration), CNC time from stock removal and setups
-- **Pricing:** material + machine time + setup, with rates in a PostgreSQL table so a shop could set its own
+- **Pricing:** material + machine time + setup, with rates in a PostgreSQL table so a shop could set its own; quantity discounts (5–20 %) and a minimum order value
+- **Locked quotes:** saving sends the actual mesh to the server, which re-runs the same geometry engine and prices it itself, then stores the quote with an ID (`Q-XXXXXX`) and a 30-day expiry. A checkout calls `GET /api/quotes/:id` and charges that total, never a price from the browser
 - **AI material advisor:** describe the use ("outdoor bracket holding 5 kg"); Gemini must answer with JSON that is checked against the materials table
 - **Quote history** (MongoDB), **PDF quote**, optional **S3** storage of uploads
 - All heavy work runs in a **Web Worker**, so the page stays responsive on large files
@@ -36,7 +41,7 @@ flowchart LR
   Q -- presigned URL --> S3[(S3<br/>uploaded STLs)]
 ```
 
-The browser does the geometry, so the server stays light: it only prices, stores and calls the AI.
+The browser does the geometry, so the page is instant and the server stays light. When a quote is saved, the server runs the **same engine** (`client/src/engine`, shared code) on the uploaded mesh, so a locked price can't be tampered with.
 
 ## How the core works
 
@@ -76,8 +81,8 @@ _Preliminary (6 models). Replace with the full 30-model run from `eval/results.m
 ## Tests
 
 ```bash
-cd client && npm test   # 25 tests: parser, geometry, validation, overhangs, orientation, slicer, estimates
-cd server && npm test   # pricing model
+cd client && npm test   # 44 tests: parser, geometry, validation, repair, units, printer fit, thin walls, overhangs, orientation, slicer, estimates, STL export
+cd server && npm test   # 10 tests: pricing, discounts, minimum order, server-side re-verification, quote IDs and expiry
 ```
 
 Ground truth comes from shapes with known answers: a 20 mm cube (8000 mm³, 2400 mm²), a hollow cube (7000 mm³, cavity subtracts), a faceted sphere (within 1 % of 4/3·π·r³), plus broken meshes (missing triangle, flipped triangle, zero-area triangle). CI runs both suites and the Docker build on every push.
@@ -88,6 +93,9 @@ Ground truth comes from shapes with known answers: a 20 mm cube (8000 mm³, 2400
 - Non-watertight meshes give approximate volumes (a warning is shown).
 - Print time is a model, not a toolpath planner: see "Why the estimates differ".
 - Support volume is a projection estimate; real support structures differ in shape and density.
+- Unit detection is a size heuristic: a genuinely tiny part (a 5 mm gear) will be asked about, and the user decides.
+- Thin-wall rays start at face centres, so very thin features smaller than a face can be missed; on self-intersecting meshes overlapping shells can be reported as thin.
+- Hole filling uses a fan from the hole's centre: right for small, roughly flat holes, not for large curved gaps.
 - CNC time uses one material removal rate per material and ignores tool changes, tool reach and internal pockets the cutter can't reach.
 - Prices are illustrative small-shop rates, not real quotes.
 - The AI advisor can be wrong; it is limited to materials in the table and always shows its reason.
@@ -110,6 +118,6 @@ npm run dev               # http://localhost:5173
 
 ## Deploy
 
-- **API (Render):** New → Blueprint → this repo (uses `render.yaml`), then fill in the environment variables. Or deploy `server/Dockerfile`.
+- **API (Render):** New → Blueprint → this repo (uses `render.yaml`), then fill in the environment variables. Or build the Docker image from the repo root: `docker build -f server/Dockerfile .` (the server needs the shared engine in `client/src/engine`).
 - **Frontend (Vercel):** import the repo, root directory `client`, set `VITE_API_URL` to the Render URL, then add the Vercel URL to `CLIENT_URL` on Render.
 - Render's free tier sleeps when idle: the first request can take about 30 s.

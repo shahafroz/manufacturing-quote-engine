@@ -1,15 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { priceAll, validatePart } from '../src/pricing.js';
+import { priceAll, validatePart, discountFor, DEFAULT_RULES } from '../src/pricing.js';
 import { DEFAULT_MATERIALS } from '../src/materials.js';
 
 const part = {
   print: { extrudedVolume: 10000, timeS: 3600 }, // 10 cm³ plastic, 1 hour
   cnc: { stockVolume: 20000, setups: 2, machiningMin: { aluminum_6061: 30, steel_1018: 90 } },
 };
+const noMinimum = { discounts: [], minimumOrder: 0 };
 
 test('PLA: 12.4 g plastic, 1 h machine time', () => {
-  const pla = priceAll(DEFAULT_MATERIALS, part, 1).find((r) => r.id === 'pla');
+  const pla = priceAll(DEFAULT_MATERIALS, part, 1, noMinimum).find((r) => r.id === 'pla');
   assert.equal(pla.weightG, 12.4);
   assert.equal(pla.materialCost, 0.27); // 12.4 g × $22/kg
   assert.equal(pla.machineCost, 3); // 1 h × $3/h
@@ -17,11 +18,30 @@ test('PLA: 12.4 g plastic, 1 h machine time', () => {
 });
 
 test('CNC setup cost is paid once per order, not per part', () => {
-  const one = priceAll(DEFAULT_MATERIALS, part, 1).find((r) => r.id === 'al6061');
-  const ten = priceAll(DEFAULT_MATERIALS, part, 10).find((r) => r.id === 'al6061');
+  const one = priceAll(DEFAULT_MATERIALS, part, 1, noMinimum).find((r) => r.id === 'al6061');
+  const ten = priceAll(DEFAULT_MATERIALS, part, 10, noMinimum).find((r) => r.id === 'al6061');
   assert.equal(one.setupCost, 50);
   assert.ok(Math.abs(ten.total - ((one.total - 50) * 10 + 50)) < 0.05);
   assert.ok(ten.perPart < one.perPart);
+});
+
+test('quantity discounts: 5 % from 10, 10 % from 25, 20 % from 100', () => {
+  assert.equal(discountFor(9), 0);
+  assert.equal(discountFor(10), 0.05);
+  assert.equal(discountFor(30), 0.1);
+  assert.equal(discountFor(100), 0.2);
+  const rules = { ...DEFAULT_RULES, minimumOrder: 0 };
+  const one = priceAll(DEFAULT_MATERIALS, part, 1, rules).find((r) => r.id === 'pla');
+  const hundred = priceAll(DEFAULT_MATERIALS, part, 100, rules).find((r) => r.id === 'pla');
+  assert.equal(hundred.discountPct, 20);
+  assert.ok(Math.abs(hundred.total - one.total * 100 * 0.8) < 0.5); // totals are rounded to cents
+});
+
+test('small orders are rounded up to the minimum order value', () => {
+  const tiny = { print: { extrudedVolume: 500, timeS: 300 }, cnc: part.cnc };
+  const pla = priceAll(DEFAULT_MATERIALS, tiny, 1).find((r) => r.id === 'pla');
+  assert.equal(pla.total, 5);
+  assert.equal(pla.minimumApplied, true);
 });
 
 test('rows come back sorted cheapest first', () => {

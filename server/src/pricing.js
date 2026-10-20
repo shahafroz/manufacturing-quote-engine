@@ -1,9 +1,27 @@
-// Pricing model: material + machine time (+ setup for CNC).
-// Input `part` comes from the browser's geometry engine:
+// Pricing model: material + machine time (+ setup for CNC), then quantity discounts and a
+// minimum order value. Input `part` comes from the geometry engine:
 //   print.extrudedVolume (mm³ of plastic, incl. infill and support), print.timeS
 //   cnc.stockVolume (mm³ block), cnc.machiningMin { aluminum_6061, steel_1018 }, cnc.setups
-export function priceAll(materials, part, quantity = 1) {
+
+export const DEFAULT_RULES = {
+  // [minimum quantity, discount on the per-part price]
+  discounts: [
+    [100, 0.2],
+    [50, 0.15],
+    [25, 0.1],
+    [10, 0.05],
+  ],
+  minimumOrder: 5, // USD: small orders are rounded up to this
+};
+
+export function discountFor(qty, rules = DEFAULT_RULES) {
+  for (const [min, pct] of rules.discounts) if (qty >= min) return pct;
+  return 0;
+}
+
+export function priceAll(materials, part, quantity = 1, rules = DEFAULT_RULES) {
   const qty = Math.max(1, Math.min(1000, Math.round(quantity) || 1));
+  const discount = discountFor(qty, rules);
   const rows = [];
 
   for (const m of materials) {
@@ -12,8 +30,7 @@ export function priceAll(materials, part, quantity = 1) {
       const machineMinutes = part.print.timeS / 60;
       const material = (weightG / 1000) * m.price_per_kg;
       const machine = (machineMinutes / 60) * m.machine_rate_hr;
-      const perPart = material + machine;
-      rows.push(row(m, weightG, machineMinutes, material, machine, 0, perPart, qty, (machineMinutes * qty) / 60 + 4));
+      rows.push(row(m, weightG, machineMinutes, material, machine, 0, qty, discount, rules, (machineMinutes * qty) / 60 + 4));
     } else if (m.process === 'cnc') {
       const minutes = part.cnc.machiningMin?.[m.cnc_key];
       if (minutes == null) continue;
@@ -21,8 +38,7 @@ export function priceAll(materials, part, quantity = 1) {
       const material = (weightG / 1000) * m.price_per_kg;
       const machine = (minutes / 60) * m.machine_rate_hr;
       const setup = part.cnc.setups * m.setup_cost; // fixtures/programming, once per order
-      const perPart = material + machine;
-      rows.push(row(m, weightG, minutes, material, machine, setup, perPart, qty, (minutes * qty) / 60 + part.cnc.setups * 0.5 + 8));
+      rows.push(row(m, weightG, minutes, material, machine, setup, qty, discount, rules, (minutes * qty) / 60 + part.cnc.setups * 0.5 + 8));
     }
   }
   return rows.sort((a, b) => a.total - b.total);
@@ -30,7 +46,10 @@ export function priceAll(materials, part, quantity = 1) {
 
 const r2 = (v) => Math.round(v * 100) / 100;
 
-function row(m, weightG, machineMinutes, material, machine, setup, perPart, qty, leadTimeHours) {
+function row(m, weightG, machineMinutes, material, machine, setup, qty, discount, rules, leadTimeHours) {
+  const unit = (material + machine) * (1 - discount);
+  const subtotal = unit * qty + setup;
+  const total = Math.max(subtotal, rules.minimumOrder);
   return {
     id: m.id,
     name: m.name,
@@ -40,8 +59,10 @@ function row(m, weightG, machineMinutes, material, machine, setup, perPart, qty,
     materialCost: r2(material),
     machineCost: r2(machine),
     setupCost: r2(setup),
-    perPart: r2(perPart + setup / qty),
-    total: r2(perPart * qty + setup),
+    discountPct: Math.round(discount * 100),
+    minimumApplied: subtotal < rules.minimumOrder,
+    perPart: r2(total / qty),
+    total: r2(total),
     leadTimeHours: r2(leadTimeHours),
   };
 }

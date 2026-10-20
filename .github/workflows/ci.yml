@@ -36,4 +36,4 @@ jobs:
           cache-dependency-path: server/package-lock.json
       - run: npm ci
       - run: npm test
-      - run: docker build -t quote-engine-api .
+      - run: docker build -f ../server/Dockerfile -t quote-engine-api ..

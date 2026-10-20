@@ -49,6 +49,10 @@ export async function getMaterials() {
 // ---- quotes ----
 const QuoteSchema = new mongoose.Schema(
   {
+    quoteId: { type: String, index: true, unique: true },
+    expiresAt: Date,
+    meshSha256: String,
+    verified: Boolean,
     fileName: String,
     s3Key: String,
     geometry: Object,
@@ -73,10 +77,16 @@ export async function initMongo() {
 }
 
 export async function saveQuote(data) {
-  if (useMongo) return { quote: await Quote.create(data), storage: 'mongodb' };
-  const quote = { ...data, id: String(memory.length + 1), createdAt: new Date().toISOString() };
+  if (useMongo) return { quote: (await Quote.create(data)).toObject(), storage: 'mongodb' };
+  const quote = { ...data, createdAt: new Date().toISOString() };
   memory.unshift(quote);
+  if (memory.length > 500) memory.pop();
   return { quote, storage: 'memory' };
+}
+
+export async function getQuote(quoteId) {
+  if (useMongo) return Quote.findOne({ quoteId }).lean();
+  return memory.find((q) => q.quoteId === quoteId) || null;
 }
 
 export async function listQuotes() {

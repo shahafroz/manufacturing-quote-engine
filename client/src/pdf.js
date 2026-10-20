@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import { money, duration } from './format.js';
 
 // Build a one-page PDF quote from what is on screen.
-export function downloadQuotePdf({ fileName, geometry, validation, settings, rows, advice, canvas }) {
+export function downloadQuotePdf({ fileName, geometry, validation, settings, rows, advice, locked, canvas }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   let y = 18;
   doc.setFontSize(18);
@@ -10,6 +10,12 @@ export function downloadQuotePdf({ fileName, geometry, validation, settings, row
   doc.setFontSize(10);
   doc.setTextColor(110);
   doc.text(`${new Date().toLocaleString()} · ${fileName}`, 15, (y += 6));
+  if (locked) {
+    doc.setTextColor(0);
+    doc.setFont(undefined, 'bold');
+    doc.text(`Quote ${locked.quoteId} · price locked until ${new Date(locked.expiresAt).toLocaleDateString()}`, 15, (y += 6));
+    doc.setFont(undefined, 'normal');
+  }
   doc.setTextColor(0);
 
   if (canvas) {
@@ -61,6 +67,12 @@ export function downloadQuotePdf({ fileName, geometry, validation, settings, row
 
   doc.setFontSize(8);
   doc.setTextColor(120);
-  doc.text('Estimate only. Print time and filament are computed by a custom slicer; see README for accuracy vs PrusaSlicer.', 15, 287);
+  doc.text(
+    locked
+      ? 'Locked quote: price calculated by the server from the submitted mesh. Valid until the date above.'
+      : 'Preview only, not locked. Save the quote to lock the price.',
+    15,
+    287,
+  );
   doc.save(`quote-${fileName.replace(/\.stl$/i, '')}.pdf`);
 }

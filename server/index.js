@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { initPostgres, getMaterials, initMongo, saveQuote, listQuotes } from './src/db.js';
+import { initPostgres, getMaterials, initMongo, saveQuote, listQuotes, getQuote } from './src/db.js';
+import { analyzeAndPrice, newQuoteId, isValid, QUOTE_DAYS } from './src/verify.js';
 import { priceAll, validatePart } from './src/pricing.js';
 import { recommend } from './src/advisor.js';
 import { createUploadUrl, s3Enabled } from './src/storage.js';
@@ -51,11 +52,38 @@ app.post('/api/recommend', async (req, res, next) => {
   }
 });
 
-app.post('/api/quotes', async (req, res, next) => {
+// Save a LOCKED quote. Body = the mesh as a binary STL; options in the x-quote-options header.
+// The server re-runs the geometry engine and prices it itself, so the browser can't change the price.
+app.post('/api/quotes', express.raw({ type: 'application/octet-stream', limit: '100mb' }), async (req, res, next) => {
   try {
-    if (!req.body?.fileName || !Array.isArray(req.body.rows)) return res.status(400).json({ error: 'fileName and rows are required' });
-    const { quote, storage } = await saveQuote(req.body);
-    res.status(201).json({ id: quote._id || quote.id, storage });
+    if (!Buffer.isBuffer(req.body) || req.body.length < 84) return res.status(400).json({ error: 'Send the mesh as a binary STL body' });
+    let options;
+    try {
+      options = JSON.parse(req.get('x-quote-options') || '{}');
+    } catch {
+      return res.status(400).json({ error: 'x-quote-options must be JSON' });
+    }
+    const result = analyzeAndPrice(req.body, options.settings || {}, await getMaterials());
+    const clientTotal = Number(options.clientCheapestTotal);
+    const serverTotal = result.rows[0]?.total;
+    const now = new Date();
+    const { quote, storage } = await saveQuote({
+      quoteId: newQuoteId(),
+      expiresAt: new Date(now.getTime() + QUOTE_DAYS * 86400000).toISOString(),
+      verified: true,
+      fileName: String(options.fileName || 'part.stl').slice(0, 200),
+      s3Key: options.s3Key || null,
+      recommendation: options.recommendation || null,
+      ...result,
+    });
+    res.status(201).json({
+      quoteId: quote.quoteId,
+      expiresAt: quote.expiresAt,
+      storage,
+      rows: result.rows,
+      // tell the page if what it showed differs from the locked price (it shouldn't)
+      matchesPreview: Number.isFinite(clientTotal) ? Math.abs(clientTotal - serverTotal) < 0.01 : null,
+    });
   } catch (e) {
     next(e);
   }
@@ -63,7 +91,19 @@ app.post('/api/quotes', async (req, res, next) => {
 
 app.get('/api/quotes', async (req, res, next) => {
   try {
-    res.json(await listQuotes());
+    const quotes = await listQuotes();
+    res.json(quotes.map((q) => ({ ...q, valid: q.expiresAt ? isValid(q) : false })));
+  } catch (e) {
+    next(e);
+  }
+});
+
+// What a checkout should call: look the quote up and charge THIS total, never the browser's.
+app.get('/api/quotes/:id', async (req, res, next) => {
+  try {
+    const q = await getQuote(req.params.id);
+    if (!q) return res.status(404).json({ error: 'Quote not found' });
+    res.json({ ...q, valid: isValid(q) });
   } catch (e) {
     next(e);
   }

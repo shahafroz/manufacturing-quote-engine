@@ -26,6 +26,7 @@ export default function QuoteTable({ rows, recommended, quantity }) {
                 {r.id === cheapestId && <span className="tag green">cheapest</span>}
                 {r.id === fastestId && <span className="tag blue">fastest</span>}
                 {r.id === recommended && <span className="tag violet">AI pick</span>}
+                {r.discountPct > 0 && <span className="tag amber">−{r.discountPct}% qty</span>}
               </td>
               <td>{r.process === 'fdm' ? '3D print' : 'CNC'}</td>
               <td className="num">{r.weightG.toFixed(1)} g</td>
@@ -36,6 +37,10 @@ export default function QuoteTable({ rows, recommended, quantity }) {
           ))}
         </tbody>
       </table>
+      {rows.some((r) => r.minimumApplied) && (
+        <p className="note">Orders under the $5 minimum are rounded up to $5.</p>
+      )}
+      {quantity < 10 && <p className="note">Order 10+ for 5% off, 25+ for 10%, 50+ for 15%, 100+ for 20%.</p>}
     </div>
   );
 }

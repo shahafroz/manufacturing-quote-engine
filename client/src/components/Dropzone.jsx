@@ -27,8 +27,13 @@ export default function Dropzone({ onFile, busy, compact }) {
         <span>Upload another STL</span>
       ) : (
         <>
-          <strong>Drop an STL file here</strong>
-          <span>or click to choose · binary or ASCII · processed in your browser</span>
+          <span className="drop-icon" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+            </svg>
+          </span>
+          <strong>Drop your STL file here</strong>
+          <span>or click to browse · any size · stays on your computer</span>
         </>
       )}
     </div>
