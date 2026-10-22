@@ -13,16 +13,18 @@ Upload an STL, inspect it in 3D, and get an instant quote for **3D printing and 
 - **Mesh validation:** welds vertices, builds an edge map and finds holes, non-manifold edges, flipped faces and zero-area triangles, drawn in red in the viewer
 - **Automatic repair:** removes zero-area triangles, makes neighbouring faces agree (walks the mesh and flips mismatches), turns inside-out parts right side out, and closes holes by following their open edges and fanning them shut. Repaired faces are shown in green
 - **Wrong units:** a part only a few mm across was probably modelled in inches, cm or metres; one click rescales it
-- **Printer fit:** checks the part against the build volume (Prusa MK4, 250 × 210 × 220 mm), and if it only fits on its side, finds the lowest orientation that fits
-- **Thin walls:** casts a ray inward from every face to measure local wall thickness (grid-accelerated Möller–Trumbore) and paints walls under 0.8 mm red
+- **Printers:** pick a preset (Prusa MK4 / Core One, Bambu P1S / A1 mini, Ender 3 V3 SE) or add your own (build size, nozzle, speed class, enclosure, hourly rate, saved in the browser). The printer changes the print time, the machine rate, the minimum wall thickness (2 × nozzle) and the fit check, and a compatibility card flags ABS on open-frame printers
+- **Printer fit:** checks the part against the chosen printer's build volume, and if it only fits on its side, finds the lowest orientation that fits
+- **Thin walls:** casts a ray inward from every face to measure local wall thickness (grid-accelerated Möller–Trumbore) and paints walls thinner than 2 × the nozzle red
 - **Overhangs:** faces steeper than 45° turn red; support volume is estimated by projecting them down to the build plate
 - **Auto-orientation:** tries 26 "up" directions and picks the one with the least support and height
 - **Mini slicer:** cuts every layer with a plane, stitches the segments into closed loops and shows them on a layer slider
 - **Estimates:** print time and filament from the sliced paths (with acceleration), CNC time from stock removal and setups
 - **Pricing:** material + machine time + setup, with rates in a PostgreSQL table so a shop could set its own; quantity discounts (5–20 %) and a minimum order value
-- **Locked quotes:** saving sends the actual mesh to the server, which re-runs the same geometry engine and prices it itself, then stores the quote with an ID (`Q-XXXXXX`) and a 30-day expiry. A checkout calls `GET /api/quotes/:id` and charges that total, never a price from the browser
+- **Locked quotes:** saving sends the actual mesh to the server, which re-runs the same geometry engine and prices it itself, then stores the quote with an ID (`Q-XXXXXXXX`) and a 30-day expiry. A checkout calls `GET /api/quotes/:id` and charges that total, never a price from the browser
 - **AI material advisor:** describe the use ("outdoor bracket holding 5 kg"); Gemini must answer with JSON that is checked against the materials table
-- **Quote history** (MongoDB), **PDF quote**, optional **S3** storage of uploads
+- **Quote history** (MongoDB): each browser only sees the quotes it saved (the full list needs an admin token), **PDF quote**, optional **S3** storage of uploads
+- **Rate limits** per IP on every API route, and all printer values from the browser are clamped on the server
 - All heavy work runs in a **Web Worker**, so the page stays responsive on large files
 
 ## Architecture
@@ -55,7 +57,7 @@ The browser does the geometry, so the page is instant and the server stays light
 
 ## Results
 
-Tested against PrusaSlicer 2.7 with the same settings (0.2 mm layers, 20 % infill, 2 walls, 4 top/bottom layers, PLA, no supports). How to rerun: [`eval/README.md`](eval/README.md).
+Tested against PrusaSlicer 2.7 with the "Generic" printer profile and the same settings (0.2 mm layers, 20 % infill, 2 walls, 4 top/bottom layers, PLA, no supports). How to rerun: [`eval/README.md`](eval/README.md).
 
 | Model | Triangles | Watertight | Ours (min) | PrusaSlicer (min) | Time error | Ours (g) | PrusaSlicer (g) | Filament error | Analyze + slice |
 |---|---:|:---:|---:|---:|---:|---:|---:|---:|---:|
@@ -81,8 +83,8 @@ _Preliminary (6 models). Replace with the full 30-model run from `eval/results.m
 ## Tests
 
 ```bash
-cd client && npm test   # 44 tests: parser, geometry, validation, repair, units, printer fit, thin walls, overhangs, orientation, slicer, estimates, STL export
-cd server && npm test   # 10 tests: pricing, discounts, minimum order, server-side re-verification, quote IDs and expiry
+cd client && npm test   # 49 tests: printers, parser, geometry, validation, repair, units, printer fit, thin walls, overhangs, orientation, slicer, estimates, STL export
+cd server && npm test   # 14 tests: pricing, discounts, minimum order, server-side re-verification, printer rates and limits, quote IDs and expiry, rate limiting
 ```
 
 Ground truth comes from shapes with known answers: a 20 mm cube (8000 mm³, 2400 mm²), a hollow cube (7000 mm³, cavity subtracts), a faceted sphere (within 1 % of 4/3·π·r³), plus broken meshes (missing triangle, flipped triangle, zero-area triangle). CI runs both suites and the Docker build on every push.

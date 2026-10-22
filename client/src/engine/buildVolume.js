@@ -4,9 +4,10 @@
 
 import { candidateDirections, rotationToZ, rotatePositions } from './orient.js';
 import { computeGeometry } from './geometry.js';
+import { PRESET_PRINTERS } from './printers.js';
 
-// Prusa MK4 build volume (mm). Change to match your printer.
-export const DEFAULT_PRINTER = { name: 'Prusa MK4', x: 250, y: 210, z: 220 };
+// Default build volume when no printer is chosen
+export const DEFAULT_PRINTER = PRESET_PRINTERS[0];
 
 export function fitsVolume(size, printer = DEFAULT_PRINTER) {
   const [x, y, z] = size;

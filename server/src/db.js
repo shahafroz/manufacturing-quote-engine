@@ -58,6 +58,7 @@ const QuoteSchema = new mongoose.Schema(
     geometry: Object,
     validation: Object,
     settings: Object,
+    printer: Object,
     print: Object,
     cnc: Object,
     rows: Array,
@@ -89,7 +90,8 @@ export async function getQuote(quoteId) {
   return memory.find((q) => q.quoteId === quoteId) || null;
 }
 
-export async function listQuotes() {
-  if (useMongo) return Quote.find().sort({ createdAt: -1 }).limit(100).lean();
-  return memory.slice(0, 100);
+// ids = null → every quote (admin); otherwise only these quote IDs
+export async function listQuotes(ids = null) {
+  if (useMongo) return Quote.find(ids ? { quoteId: { $in: ids } } : {}).sort({ createdAt: -1 }).limit(100).lean();
+  return memory.filter((q) => !ids || ids.includes(q.quoteId)).slice(0, 100);
 }

@@ -25,8 +25,30 @@ test('same mesh + settings always gives the same price', () => {
   assert.deepEqual(a.rows, b.rows);
 });
 
-test('quote ids look like Q-XXXXXX and expire', () => {
-  assert.match(newQuoteId(), /^Q-[A-HJ-NP-Z2-9]{6}$/);
+test('quote ids look like Q-XXXXXXXX and expire', () => {
+  assert.match(newQuoteId(), /^Q-[A-HJ-NP-Z2-9]{8}$/);
   assert.equal(isValid({ expiresAt: new Date(Date.now() + 1000).toISOString() }), true);
   assert.equal(isValid({ expiresAt: new Date(Date.now() - 1000).toISOString() }), false);
+});
+
+test('a faster printer gives a shorter print and uses its hourly rate', () => {
+  const slow = analyzeAndPrice(cube, {}, DEFAULT_MATERIALS, { id: 'generic' });
+  const fast = analyzeAndPrice(cube, {}, DEFAULT_MATERIALS, { id: 'bambu-p1s' });
+  assert.ok(fast.print.timeS < slow.print.timeS);
+  assert.equal(fast.printer.name, 'Bambu Lab P1S');
+});
+
+test('ABS is flagged on an open printer, not on an enclosed one', () => {
+  const open = analyzeAndPrice(cube, {}, DEFAULT_MATERIALS, { id: 'prusa-mk4' }).rows.find((r) => r.id === 'abs');
+  const closed = analyzeAndPrice(cube, {}, DEFAULT_MATERIALS, { id: 'bambu-p1s' }).rows.find((r) => r.id === 'abs');
+  assert.equal(open.warning, 'needs an enclosed printer');
+  assert.equal(closed.warning, undefined);
+});
+
+test('silly custom printer values are clamped', () => {
+  const r = analyzeAndPrice(cube, {}, DEFAULT_MATERIALS, { id: 'custom', name: 'x', x: -5, nozzle: 99, hourlyRate: 1e9, speeds: { perimeterSpeed: 0 } });
+  assert.equal(r.printer.x, 20);
+  assert.equal(r.printer.nozzle, 2);
+  assert.equal(r.printer.hourlyRate, 500);
+  assert.equal(r.printer.speeds.perimeterSpeed, 5);
 });

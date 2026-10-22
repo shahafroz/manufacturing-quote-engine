@@ -1,20 +1,23 @@
 import { useEffect, useState } from 'react';
 import { api, errorText } from '../api.js';
 import { money } from '../format.js';
+import { myQuoteIds } from '../myQuotes.js';
 
 export default function History() {
   const [quotes, setQuotes] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get('/api/quotes')
+    const ids = myQuoteIds();
+    if (ids.length === 0) return setQuotes([]);
+    api.get('/api/quotes', { params: { ids: ids.join(',') } })
       .then(({ data }) => setQuotes(data))
       .catch((err) => setError(errorText(err)));
   }, []);
 
   if (error) return <p className="error">{error}</p>;
   if (!quotes) return <p className="muted">Loading…</p>;
-  if (quotes.length === 0) return <p className="muted">No saved quotes yet. Analyze a part and click "Save quote".</p>;
+  if (quotes.length === 0) return <p className="muted">No saved quotes yet. Analyze a part and click "Lock & save quote". Only quotes saved in this browser are shown here.</p>;
 
   return (
     <div className="table-wrap">

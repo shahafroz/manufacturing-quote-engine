@@ -6,8 +6,11 @@ import { analyzeAndPrice, newQuoteId, isValid, QUOTE_DAYS } from './src/verify.j
 import { priceAll, validatePart } from './src/pricing.js';
 import { recommend } from './src/advisor.js';
 import { createUploadUrl, s3Enabled } from './src/storage.js';
+import { sanitizePrinter } from '../client/src/engine/printers.js';
+import { rateLimit } from './src/rateLimit.js';
 
 const app = express();
+app.set('trust proxy', 1); // Render sits behind one proxy: use the visitor's real IP for rate limits
 
 // Allow the local Vite dev server, plus your deployed site (CLIENT_URL, comma-separated if several)
 const allowed = ['http://localhost:5173', 'http://localhost:5174', ...(process.env.CLIENT_URL || '').split(',')]
@@ -31,18 +34,19 @@ app.get('/api/materials', async (req, res, next) => {
 });
 
 // Price every material for the part the browser analyzed
-app.post('/api/quote', async (req, res, next) => {
+app.post('/api/quote', rateLimit({ max: 120 }), async (req, res, next) => {
   try {
     const problem = validatePart(req.body);
     if (problem) return res.status(400).json({ error: problem });
-    const rows = priceAll(await getMaterials(), req.body, req.body.quantity);
+    const printer = req.body.printer ? sanitizePrinter(req.body.printer) : null;
+    const rows = priceAll(await getMaterials(), req.body, req.body.quantity, undefined, printer);
     res.json({ rows });
   } catch (e) {
     next(e);
   }
 });
 
-app.post('/api/recommend', async (req, res, next) => {
+app.post('/api/recommend', rateLimit({ max: 10 }), async (req, res, next) => {
   try {
     const { useCase, part } = req.body || {};
     if (!useCase || typeof useCase !== 'string') return res.status(400).json({ error: 'useCase is required' });
@@ -54,7 +58,7 @@ app.post('/api/recommend', async (req, res, next) => {
 
 // Save a LOCKED quote. Body = the mesh as a binary STL; options in the x-quote-options header.
 // The server re-runs the geometry engine and prices it itself, so the browser can't change the price.
-app.post('/api/quotes', express.raw({ type: 'application/octet-stream', limit: '100mb' }), async (req, res, next) => {
+app.post('/api/quotes', rateLimit({ max: 20 }), express.raw({ type: 'application/octet-stream', limit: '100mb' }), async (req, res, next) => {
   try {
     if (!Buffer.isBuffer(req.body) || req.body.length < 84) return res.status(400).json({ error: 'Send the mesh as a binary STL body' });
     let options;
@@ -63,7 +67,7 @@ app.post('/api/quotes', express.raw({ type: 'application/octet-stream', limit: '
     } catch {
       return res.status(400).json({ error: 'x-quote-options must be JSON' });
     }
-    const result = analyzeAndPrice(req.body, options.settings || {}, await getMaterials());
+    const result = analyzeAndPrice(req.body, options.settings || {}, await getMaterials(), options.printer);
     const clientTotal = Number(options.clientCheapestTotal);
     const serverTotal = result.rows[0]?.total;
     const now = new Date();
@@ -89,9 +93,14 @@ app.post('/api/quotes', express.raw({ type: 'application/octet-stream', limit: '
   }
 });
 
-app.get('/api/quotes', async (req, res, next) => {
+// Quote history. Visitors only see the quotes they saved (the page keeps their IDs);
+// the full list needs the ADMIN_TOKEN, so nobody can browse other people's quotes.
+app.get('/api/quotes', rateLimit({ max: 60 }), async (req, res, next) => {
   try {
-    const quotes = await listQuotes();
+    const admin = process.env.ADMIN_TOKEN && req.get('x-admin-token') === process.env.ADMIN_TOKEN;
+    const ids = String(req.query.ids || '').split(',').map((s) => s.trim()).filter((s) => /^Q-[A-Z0-9]{6,8}$/.test(s)).slice(0, 100);
+    if (!admin && ids.length === 0) return res.json([]);
+    const quotes = await listQuotes(admin ? null : ids);
     res.json(quotes.map((q) => ({ ...q, valid: q.expiresAt ? isValid(q) : false })));
   } catch (e) {
     next(e);
@@ -99,7 +108,7 @@ app.get('/api/quotes', async (req, res, next) => {
 });
 
 // What a checkout should call: look the quote up and charge THIS total, never the browser's.
-app.get('/api/quotes/:id', async (req, res, next) => {
+app.get('/api/quotes/:id', rateLimit({ max: 60 }), async (req, res, next) => {
   try {
     const q = await getQuote(req.params.id);
     if (!q) return res.status(404).json({ error: 'Quote not found' });
@@ -109,7 +118,7 @@ app.get('/api/quotes/:id', async (req, res, next) => {
   }
 });
 
-app.post('/api/upload-url', async (req, res, next) => {
+app.post('/api/upload-url', rateLimit({ max: 20 }), async (req, res, next) => {
   try {
     res.json(await createUploadUrl(req.body?.fileName, req.body?.size));
   } catch (e) {

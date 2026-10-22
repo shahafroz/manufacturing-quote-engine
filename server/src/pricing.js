@@ -3,6 +3,8 @@
 //   print.extrudedVolume (mm³ of plastic, incl. infill and support), print.timeS
 //   cnc.stockVolume (mm³ block), cnc.machiningMin { aluminum_6061, steel_1018 }, cnc.setups
 
+const NEEDS_ENCLOSURE = new Set(['abs']);
+
 export const DEFAULT_RULES = {
   // [minimum quantity, discount on the per-part price]
   discounts: [
@@ -19,7 +21,9 @@ export function discountFor(qty, rules = DEFAULT_RULES) {
   return 0;
 }
 
-export function priceAll(materials, part, quantity = 1, rules = DEFAULT_RULES) {
+// `printer` (optional): its hourly rate replaces the default 3D-printing machine rate, and
+// materials that need an enclosure get a warning on open printers.
+export function priceAll(materials, part, quantity = 1, rules = DEFAULT_RULES, printer = null) {
   const qty = Math.max(1, Math.min(1000, Math.round(quantity) || 1));
   const discount = discountFor(qty, rules);
   const rows = [];
@@ -29,8 +33,11 @@ export function priceAll(materials, part, quantity = 1, rules = DEFAULT_RULES) {
       const weightG = (part.print.extrudedVolume / 1000) * m.density;
       const machineMinutes = part.print.timeS / 60;
       const material = (weightG / 1000) * m.price_per_kg;
-      const machine = (machineMinutes / 60) * m.machine_rate_hr;
-      rows.push(row(m, weightG, machineMinutes, material, machine, 0, qty, discount, rules, (machineMinutes * qty) / 60 + 4));
+      const rate = printer ? printer.hourlyRate : m.machine_rate_hr;
+      const machine = (machineMinutes / 60) * rate;
+      const r = row(m, weightG, machineMinutes, material, machine, 0, qty, discount, rules, (machineMinutes * qty) / 60 + 4);
+      if (printer && !printer.enclosed && NEEDS_ENCLOSURE.has(m.id)) r.warning = 'needs an enclosed printer';
+      rows.push(r);
     } else if (m.process === 'cnc') {
       const minutes = part.cnc.machiningMin?.[m.cnc_key];
       if (minutes == null) continue;

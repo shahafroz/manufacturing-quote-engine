@@ -195,3 +195,41 @@ table.quote { width: 100%; border-collapse: collapse; font-size: 14px; }
 .locked-id span { color: var(--muted); font-size: 13px; }
 .locked-id .fix { margin-left: auto; }
 .locked p { margin: 8px 0 0; font-size: 13px; color: #2c6b45; }
+
+/* ---------- home page ---------- */
+.primary.small { padding: 9px 16px; }
+.pros { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.compare td, .compare th { text-align: left; }
+.compare .us { background: #fff6f1; font-weight: 600; }
+.compare th.us { color: var(--accent); }
+.compare td.yes { color: var(--green); }
+.compare td.no { color: #9a9ca5; }
+.compare td.part { color: var(--amber); }
+.compare td:first-child { color: var(--text); font-weight: 600; }
+.printer-chips { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.printer-chips span { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px 16px; font-weight: 600; box-shadow: var(--shadow); display: flex; flex-direction: column; align-items: center; }
+.printer-chips small { color: var(--muted); font-weight: 500; font-size: 12px; }
+.printer-chips .add { border-style: dashed; color: var(--accent); justify-content: center; }
+.cta { text-align: center; padding: 34px 20px; background: linear-gradient(135deg, #fff3ec, #fff); }
+.cta h3 { font-size: 24px; margin-bottom: 6px; }
+.cta p { color: var(--muted); margin: 0 0 18px; }
+.footer { text-align: center; color: var(--muted); font-size: 13px; padding: 8px 0 0; }
+@media (max-width: 900px) { .pros { grid-template-columns: 1fr; } }
+
+/* ---------- app start + printer ---------- */
+.start { display: flex; flex-direction: column; gap: 16px; max-width: 760px; margin: 0 auto; }
+.start-head { text-align: center; padding: 18px 0 4px; }
+.start-head h2 { font-size: 28px; letter-spacing: -0.5px; }
+.start-head p { color: var(--muted); margin: 6px 0 14px; }
+.printer-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.printer-row select { flex: 1; min-width: 200px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.printer-specs { color: var(--muted); font-size: 13px; margin: 8px 0 12px; }
+.printer-form { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 6px 0 14px; padding: 14px; border-radius: 14px; background: var(--panel-2); }
+.printer-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.printer-form input, .printer-form select { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 6px 8px; min-width: 0; }
+.printer-form .wide { grid-column: span 2; }
+.printer-form .row-end { grid-column: 1 / -1; display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.printer-form .inline { flex-direction: row; align-items: center; gap: 6px; margin-right: auto; }
+@media (max-width: 600px) { .printer-form { grid-template-columns: 1fr 1fr; } }
+.warn-text { color: var(--amber); font-size: 12px; font-weight: 600; display: block; }
+.sub { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin: 4px 0 10px; }

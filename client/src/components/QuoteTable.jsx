@@ -27,6 +27,7 @@ export default function QuoteTable({ rows, recommended, quantity }) {
                 {r.id === fastestId && <span className="tag blue">fastest</span>}
                 {r.id === recommended && <span className="tag violet">AI pick</span>}
                 {r.discountPct > 0 && <span className="tag amber">−{r.discountPct}% qty</span>}
+                {r.warning && <span className="warn-text">⚠ {r.warning}</span>}
               </td>
               <td>{r.process === 'fdm' ? '3D print' : 'CNC'}</td>
               <td className="num">{r.weightG.toFixed(1)} g</td>

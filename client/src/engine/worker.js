@@ -13,10 +13,12 @@ import { checkBuildVolume, rotateToFit } from './buildVolume.js';
 import { detectThinWalls } from './thinWalls.js';
 import { repairMesh } from './repair.js';
 import { toBinaryStl } from './exportStl.js';
+import { sanitizePrinter, printSettingsFor, minWallFor, PRESET_PRINTERS } from './printers.js';
 
 let positions = null; // the current mesh lives here, in the worker
 let addedMask = null; // triangles added by repair (shown in green)
 let job = 0; // so a slow thin-wall check from an old mesh is ignored
+let printer = PRESET_PRINTERS[0]; // the printer chosen on the page
 
 function timed(t, name, fn) {
   const s = performance.now();
@@ -31,7 +33,7 @@ function analyzeAndPost(extra = {}) {
   const validation = timed(t, 'validation', () => validateMesh(positions));
   const overhang = timed(t, 'overhangs', () => detectOverhangs(positions));
   const units = suggestUnits(geometry.bbox.size);
-  const buildVolume = timed(t, 'buildVolume', () => checkBuildVolume(positions, geometry.bbox.size));
+  const buildVolume = timed(t, 'buildVolume', () => checkBuildVolume(positions, geometry.bbox.size, printer));
   if (addedMask && addedMask.length !== positions.length / 9) addedMask = null;
   const copy = positions.slice(); // the page gets its own copy for drawing
   self.postMessage(
@@ -44,7 +46,7 @@ function analyzeAndPost(extra = {}) {
   setTimeout(() => {
     if (mine !== job) return;
     const s = performance.now();
-    const thin = detectThinWalls(positions);
+    const thin = detectThinWalls(positions, minWallFor(printer));
     if (mine !== job) return;
     self.postMessage({ type: 'thin', thin, ms: performance.now() - s });
   }, 0);
@@ -53,7 +55,10 @@ function analyzeAndPost(extra = {}) {
 self.onmessage = (e) => {
   const msg = e.data;
   try {
-    if (msg.type === 'analyze') {
+    if (msg.type === 'printer') {
+      printer = sanitizePrinter(msg.printer);
+      if (positions) analyzeAndPost({ payload: { notice: `Printer: ${printer.name}` } });
+    } else if (msg.type === 'analyze') {
       const s = performance.now();
       positions = parseStl(msg.buffer);
       if (positions.length === 0) throw new Error('No triangles found. Is this a valid STL file?');
@@ -83,7 +88,7 @@ self.onmessage = (e) => {
       const sliceMs = performance.now() - s;
       const geometry = computeGeometry(positions);
       const overhang = detectOverhangs(positions);
-      const print = estimatePrint(sliced, overhang.supportVolume, msg.settings);
+      const print = estimatePrint(sliced, overhang.supportVolume, { ...printSettingsFor(printer), ...msg.settings });
       const cnc = estimateCnc(geometry, positions);
       const layers = sliced.layers.map((L) => ({ z: L.z, area: L.area, perimeter: L.perimeter, loops: L.loops }));
       self.postMessage({ type: 'estimated', layers, minZ: sliced.minZ, print, cnc, timings: { slice: sliceMs } });

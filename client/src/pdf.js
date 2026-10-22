@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import { money, duration } from './format.js';
 
 // Build a one-page PDF quote from what is on screen.
-export function downloadQuotePdf({ fileName, geometry, validation, settings, rows, advice, locked, canvas }) {
+export function downloadQuotePdf({ fileName, geometry, validation, settings, printer, rows, advice, locked, canvas }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   let y = 18;
   doc.setFontSize(18);
@@ -34,6 +34,7 @@ export function downloadQuotePdf({ fileName, geometry, validation, settings, row
     ['Triangles', geometry.triangleCount.toLocaleString()],
     ['Mesh', validation.watertight ? 'watertight' : 'NOT watertight'],
     ['Print settings', `${settings.layerHeight} mm layers, ${Math.round(settings.infill * 100)} % infill`],
+    ['Printer', printer ? printer.name.slice(0, 34) : 'Generic'],
     ['Quantity', String(settings.quantity)],
   ];
   let fy = y + 2;

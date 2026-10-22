@@ -8,18 +8,21 @@ import { validateMesh } from '../../client/src/engine/validate.js';
 import { detectOverhangs } from '../../client/src/engine/overhang.js';
 import { sliceMesh } from '../../client/src/engine/slice.js';
 import { estimatePrint, estimateCnc } from '../../client/src/engine/estimate.js';
-import { priceAll } from './pricing.js';
+import { sanitizePrinter, printSettingsFor } from '../../client/src/engine/printers.js';
+import { priceAll, DEFAULT_RULES } from './pricing.js';
 
 export const QUOTE_DAYS = 30;
 
 export function newQuoteId() {
-  // Q- plus 6 characters without look-alikes (no 0/O, 1/I)
+  // Q- plus 8 characters without look-alikes (no 0/O, 1/I): 32^8 ≈ 10^12 possible IDs,
+  // so quote IDs can't realistically be guessed
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const bytes = randomBytes(6);
+  const bytes = randomBytes(8);
   return 'Q-' + Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
 }
 
-export function analyzeAndPrice(stlBytes, settings, materials) {
+export function analyzeAndPrice(stlBytes, settings, materials, printerInput = null) {
+  const printer = sanitizePrinter(printerInput);
   const buf = stlBytes.buffer.slice(stlBytes.byteOffset, stlBytes.byteOffset + stlBytes.byteLength);
   const p = parseStl(buf);
   if (p.length === 0) {
@@ -35,7 +38,7 @@ export function analyzeAndPrice(stlBytes, settings, materials) {
   const validation = validateMesh(p);
   const overhang = detectOverhangs(p);
   const sliced = sliceMesh(p, layerHeight);
-  const print = estimatePrint(sliced, overhang.supportVolume, { layerHeight, infill });
+  const print = estimatePrint(sliced, overhang.supportVolume, { ...printSettingsFor(printer), layerHeight, infill });
   const cnc = estimateCnc(geometry, p);
   const rows = priceAll(
     materials,
@@ -48,11 +51,14 @@ export function analyzeAndPrice(stlBytes, settings, materials) {
       },
     },
     quantity,
+    DEFAULT_RULES,
+    printer,
   );
 
   return {
     meshSha256: createHash('sha256').update(stlBytes).digest('hex'),
     settings: { layerHeight, infill, quantity },
+    printer,
     geometry: { volume: geometry.volume, surfaceArea: geometry.surfaceArea, bbox: geometry.bbox, triangleCount: geometry.triangleCount },
     validation: { watertight: validation.watertight, boundaryEdges: validation.boundaryEdges, nonManifoldEdges: validation.nonManifoldEdges },
     print: { timeS: print.timeS, extrudedVolume: print.extrudedVolume, layers: print.layers, supportVolume: overhang.supportVolume },

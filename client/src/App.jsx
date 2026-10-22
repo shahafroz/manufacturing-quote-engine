@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ModelViewer from './ModelViewer.jsx';
 import Dropzone from './components/Dropzone.jsx';
-import Landing from './components/Landing.jsx';
+import PrinterCard, { loadChosenPrinter } from './components/PrinterCard.jsx';
 import StatsPanel from './components/StatsPanel.jsx';
 import MeshHealth from './components/MeshHealth.jsx';
 import Checks from './components/Checks.jsx';
@@ -12,6 +12,8 @@ import History from './components/History.jsx';
 import { api, errorText } from './api.js';
 import { duration } from './format.js';
 import { downloadQuotePdf } from './pdf.js';
+import { go } from './router.js';
+import { rememberQuote } from './myQuotes.js';
 import './App.css';
 
 const DEFAULT_SETTINGS = { layerHeight: 0.2, infill: 0.2, quantity: 1 };
@@ -38,6 +40,7 @@ export default function App() {
   const [notice, setNotice] = useState('');
   const [locked, setLocked] = useState(null); // saved, server-verified quote
   const [saving, setSaving] = useState(false);
+  const [printer, setPrinter] = useState(loadChosenPrinter);
   const exportWaiters = useRef(new Map());
 
   const worker = useRef(null);
@@ -86,6 +89,19 @@ export default function App() {
     return () => w.terminate();
   }, []);
 
+  // The worker uses the printer for build volume, wall thickness and print speeds
+  useEffect(() => {
+    worker.current.postMessage({ type: 'printer', printer });
+  }, [printer]);
+
+  // /app?sample=1 (from the home page) opens straight into the sample part
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('sample')) {
+      window.history.replaceState({}, '', '/app');
+      loadSample();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // A locked quote is for specific settings: changing them means it has to be saved again
   useEffect(() => setLocked(null), [settings]);
 
@@ -115,6 +131,7 @@ export default function App() {
         machiningMin: Object.fromEntries(Object.entries(estimate.cnc.perMaterial).map(([k, v]) => [k, v.machiningMin])),
       },
       quantity: settings.quantity,
+      printer,
     };
     (async () => {
       for (let attempt = 1; attempt <= 4; attempt++) {
@@ -136,7 +153,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [estimate, analysis, settings.quantity]);
+  }, [estimate, analysis, settings.quantity]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onFile = useCallback(async (f) => {
     if (!/\.stl$/i.test(f.name)) {
@@ -209,12 +226,14 @@ export default function App() {
             fileName: file.name,
             s3Key,
             settings,
+            printer,
             recommendation: advice,
             clientCheapestTotal: rows?.[0]?.total,
           }),
         },
       });
       setLocked(data);
+      rememberQuote(data.quoteId); // so History can show this visitor's own quotes
       setRows(data.rows); // the server's prices are the ones that count
     } catch (err) {
       setError(`Save failed: ${errorText(err)}`);
@@ -229,6 +248,7 @@ export default function App() {
       geometry: analysis.geometry,
       validation: analysis.validation,
       settings,
+      printer,
       rows,
       advice,
       locked,
@@ -251,7 +271,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
+        <div className="brand" onClick={() => go('/')} title="Home">
           <span className="logo" aria-hidden="true">M</span>
           <div>
             <h1>Manufacturing Quote Engine</h1>
@@ -271,7 +291,15 @@ export default function App() {
         <main className="single"><History /></main>
       ) : !positions ? (
         <main className="single">
-          <Landing onFile={onFile} onSample={loadSample} busy={busy} />
+          <div className="start">
+            <div className="start-head">
+              <h2>Upload a part to get a quote</h2>
+              <p>STL files from any CAD program. Checked in your browser, nothing is uploaded yet.</p>
+              <button className="ghost" onClick={loadSample} disabled={busy}>{busy ? 'Loading…' : 'Or try a sample part'}</button>
+            </div>
+            <Dropzone onFile={onFile} busy={busy} />
+            <PrinterCard printer={printer} onChange={setPrinter} />
+          </div>
         </main>
       ) : (
         <main className="layout">
@@ -334,6 +362,7 @@ export default function App() {
           <section className="right">
             <StatsPanel file={file} geometry={analysis.geometry} timings={{ ...analysis.timings, ...(estimate?.timings || {}) }} />
             {notice && <div className="banner info" onClick={() => setNotice('')}>{notice} ✕</div>}
+            <PrinterCard printer={printer} onChange={setPrinter} buildVolume={analysis.buildVolume} thin={thin} />
             <Checks
               units={analysis.units}
               buildVolume={analysis.buildVolume}
@@ -365,7 +394,7 @@ export default function App() {
                 </div>
                 {estimate && (
                   <div className="stat">
-                    <span className="stat-label">Print time (PLA)</span>
+                    <span className="stat-label">Print time ({printer.name.replace(/ \(.*\)$/, '')})</span>
                     <span className="stat-value">{duration(estimate.print.timeS)}</span>
                   </div>
                 )}
