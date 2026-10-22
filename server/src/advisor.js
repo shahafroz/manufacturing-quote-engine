@@ -6,6 +6,26 @@ import { GoogleGenAI } from '@google/genai';
 let client = null;
 const getClient = () => (client ??= new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }));
 
+// Gemini returns 503 (overloaded) or 429 (rate limited) during demand spikes. Retry the main
+// model once after a short pause, then try the lighter fallback model, then give a clean error.
+const BUSY = new Set([429, 500, 503]);
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export async function generateWithRetry(call, models, { delayMs = 1500, sleep = wait } = {}) {
+  const tries = [models[0], models[0], ...models.slice(1)];
+  for (let i = 0; i < tries.length; i++) {
+    try {
+      return await call(tries[i]);
+    } catch (e) {
+      if (!BUSY.has(e.status)) throw e;
+      if (i < tries.length - 1) await sleep(delayMs);
+    }
+  }
+  const err = new Error('The AI advisor is busy right now. Please try again in a minute.');
+  err.status = 503;
+  throw err;
+}
+
 export async function recommend(useCase, part, materials) {
   if (!process.env.GEMINI_API_KEY) {
     const err = new Error('AI advisor is not configured (add GEMINI_API_KEY to server/.env)');
@@ -23,8 +43,9 @@ Reply as JSON with materialId (one of the ids above) and reason (max 40 words, m
 
   let feedback = '';
   for (let attempt = 0; attempt < 2; attempt++) {
-    const res = await getClient().models.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    const models = [process.env.GEMINI_MODEL || 'gemini-3.8-flash', process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite'];
+    const res = await generateWithRetry((model) => getClient().models.generateContent({
+      model,
       contents: base + feedback,
       config: {
         responseMimeType: 'application/json',
@@ -35,7 +56,7 @@ Reply as JSON with materialId (one of the ids above) and reason (max 40 words, m
         },
         temperature: 0.2,
       },
-    });
+    }), models);
     let out;
     try {
       out = JSON.parse(res.text);
