@@ -46,4 +46,30 @@ describe('repairMesh', () => {
     expect(r.report.degenerateRemoved).toBe(1);
     expect(r.positions.length / 9).toBe(12);
   });
+
+  it('removes duplicate triangles, even with the opposite winding', () => {
+    const p = load('sphere_r10.stl');
+    const dup = Float32Array.from(p.slice(0, 9));
+    dup.set(p.slice(6, 9), 3);
+    dup.set(p.slice(3, 6), 6);
+    const r = repairMesh(new Float32Array([...p, ...p.slice(9, 18), ...dup]));
+    expect(r.report.duplicatesRemoved).toBe(2);
+    const v = validateMesh(r.positions);
+    expect(v.nonManifoldEdges).toBe(0);
+    expect(v.flippedEdges).toBe(0);
+    expect(computeGeometry(r.positions).volume).toBeCloseTo(computeGeometry(p).volume, 3);
+  });
+
+  it('closes holes that touch at a corner without making non-manifold edges', () => {
+    const p = load('sphere_r10.stl');
+    const n = p.length / 9;
+    const gone = new Set(Array.from({ length: 40 }, (_, i) => (i * 37) % n));
+    const out = [];
+    for (let t = 0; t < n; t++) if (!gone.has(t)) out.push(...p.slice(t * 9, t * 9 + 9));
+    const r = repairMesh(new Float32Array(out));
+    const v = validateMesh(r.positions);
+    expect(v.watertight).toBe(true);
+    expect(v.flippedEdges).toBe(0);
+    expect(computeGeometry(r.positions).volume).toBeCloseTo(computeGeometry(p).volume, 0);
+  });
 });

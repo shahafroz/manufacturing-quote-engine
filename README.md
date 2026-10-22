@@ -120,6 +120,10 @@ npm run dev               # http://localhost:5173
 
 ## Deploy
 
-- **API (Render):** New → Blueprint → this repo (uses `render.yaml`), then fill in the environment variables. Or build the Docker image from the repo root: `docker build -f server/Dockerfile .` (the server needs the shared engine in `client/src/engine`).
-- **Frontend (Vercel):** import the repo, root directory `client`, set `VITE_API_URL` to the Render URL, then add the Vercel URL to `CLIENT_URL` on Render.
-- Render's free tier sleeps when idle: the first request can take about 30 s.
+1. **MongoDB Atlas (saved quotes):** create a free M0 cluster. Under *Database Access* add a user with a password; under *Network Access* allow `0.0.0.0/0` (Render has no fixed IP on the free plan). *Connect → Drivers* gives the `mongodb+srv://…` string: that is `MONGO_URI`. If it has no database name, the server uses `quote-engine`.
+2. **API (Render):** New → Blueprint → this repo. It builds `server/Dockerfile` from the repo root (the server shares the engine in `client/src/engine`). Fill in `MONGO_URI`, `GEMINI_API_KEY` and any of the optional ones; `ADMIN_TOKEN` is generated for you. Leave `CLIENT_URL` for step 4. Check `https://<your-api>.onrender.com/api/health` shows `"quotes":"mongodb"`.
+3. **Frontend (Vercel):** import the repo, root directory `client`, set `VITE_API_URL` to the Render URL (no trailing slash). The build stops with an error if it is missing.
+4. Back on Render, set `CLIENT_URL` to the Vercel URL (comma-separate several), so the browser is allowed to call the API.
+
+Optional: `DATABASE_URL` (Neon/Supabase PostgreSQL) for editable material prices, AWS S3 variables to keep uploaded STLs. Without them the app uses built-in prices and skips the upload.
+Render's free tier sleeps when idle: the first request can take about 30 s (the app retries for you). If MongoDB is unreachable at startup, quotes are kept in memory and the server keeps retrying every 30 s.

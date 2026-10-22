@@ -1,7 +1,7 @@
-import 'dotenv/config';
+import './src/env.js';
 import express from 'express';
 import cors from 'cors';
-import { initPostgres, getMaterials, initMongo, saveQuote, listQuotes, getQuote } from './src/db.js';
+import { initPostgres, getMaterials, initMongo, retryMongo, closeDatabases, saveQuote, listQuotes, getQuote } from './src/db.js';
 import { analyzeAndPrice, newQuoteId, isValid, QUOTE_DAYS } from './src/verify.js';
 import { priceAll, validatePart } from './src/pricing.js';
 import { recommend } from './src/advisor.js';
@@ -136,7 +136,14 @@ const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   status.materials = await initPostgres().catch((e) => (console.error('PostgreSQL:', e.message), 'defaults (db error)'));
-  status.quotes = await initMongo().catch((e) => (console.error('MongoDB:', e.message), 'memory (db error)'));
+  status.quotes = await initMongo().catch((e) => {
+    console.error('MongoDB:', e.message, '(retrying every 30 s)');
+    retryMongo((s) => {
+      status.quotes = s;
+      console.log('MongoDB connected');
+    });
+    return 'memory (db error)';
+  });
   console.log(`Materials: ${status.materials} · Quotes: ${status.quotes} · AI: ${Boolean(process.env.GEMINI_API_KEY)} · S3: ${s3Enabled()}`);
 });
 
@@ -147,3 +154,14 @@ server.on('error', (err) => {
   }
   throw err;
 });
+
+// Render (and Docker) send SIGTERM on every deploy: finish open requests, close the databases
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => {
+    server.close(async () => {
+      await closeDatabases();
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(0), 10000).unref();
+  });
+}

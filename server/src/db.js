@@ -71,10 +71,30 @@ const memory = [];
 let useMongo = false;
 
 export async function initMongo() {
-  if (!process.env.MONGO_URI) return 'memory';
-  await mongoose.connect(process.env.MONGO_URI, { serverSelectionTimeoutMS: 8000 });
+  const uri = process.env.MONGO_URI;
+  if (!uri) return 'memory';
+  // Atlas connection strings often leave out the database name, which would mean "test"
+  const hasDb = /^mongodb(\+srv)?:\/\/[^/]+\/[^?]+/.test(uri);
+  await mongoose.connect(uri, { serverSelectionTimeoutMS: 8000, ...(hasDb ? {} : { dbName: 'quote-engine' }) });
   useMongo = true;
   return 'mongodb';
+}
+
+// If MongoDB was down at startup, keep trying in the background instead of staying on memory
+export function retryMongo(onConnected, everyMs = 30000) {
+  const timer = setInterval(async () => {
+    try {
+      onConnected(await initMongo());
+      clearInterval(timer);
+    } catch (e) {
+      console.error('MongoDB retry:', e.message);
+    }
+  }, everyMs);
+  timer.unref();
+}
+
+export async function closeDatabases() {
+  await Promise.allSettled([pool?.end(), useMongo ? mongoose.disconnect() : null]);
 }
 
 export async function saveQuote(data) {

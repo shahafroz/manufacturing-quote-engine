@@ -8,5 +8,6 @@ COPY server server
 COPY client/src/engine client/src/engine
 ENV NODE_ENV=production
 WORKDIR /app/server
+USER node
 EXPOSE 5000
 CMD ["node", "index.js"]

@@ -1,18 +1,25 @@
 # Render blueprint: New → Blueprint → pick this repo. Fill in the secret values in the dashboard.
+# Built with Docker from the repo root, because the server shares the geometry engine in
+# client/src/engine (the same image CI builds).
 services:
   - type: web
     name: quote-engine-api
-    runtime: node
-    rootDir: server
-    buildCommand: npm ci
-    startCommand: npm start
+    runtime: docker
+    plan: free
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: .
     healthCheckPath: /api/health
+    buildFilter:
+      paths:
+        - server/**
+        - client/src/engine/**
+        - render.yaml
     envVars:
       - key: CLIENT_URL
         sync: false
-      - key: DATABASE_URL
-        sync: false
       - key: MONGO_URI
+        sync: false
+      - key: DATABASE_URL
         sync: false
       - key: GEMINI_API_KEY
         sync: false

@@ -1,18 +1,18 @@
 // Automatic mesh repair, in four passes:
-//  1. drop zero-area triangles
+//  1. drop zero-area and duplicate triangles
 //  2. make every face point the same way as its neighbours (walk across shared edges and flip
 //     any neighbour that walks the shared edge in the same direction)
 //  3. fix inside-out parts: if a connected piece encloses negative volume, flip all its faces
 //  4. close holes: follow the open edges around each hole and fill it with a fan of triangles
-//     to its centre point
-// Returns new positions plus a report and a mask of the triangles we added (to show in blue).
+//     to its centre point (holes that touch at a corner are split and filled separately)
+// Returns new positions plus a report and a mask of the triangles we added (to show in green).
 
 import { weldVertices } from './validate.js';
 
 const MAX_HOLE_EDGES = 2000;
 
 export function repairMesh(p) {
-  const report = { degenerateRemoved: 0, facesFlipped: 0, partsTurnedRightSideOut: 0, holesFilled: 0, trianglesAdded: 0, holesSkipped: 0 };
+  const report = { degenerateRemoved: 0, duplicatesRemoved: 0, facesFlipped: 0, partsTurnedRightSideOut: 0, holesFilled: 0, trianglesAdded: 0, holesSkipped: 0 };
 
   // ---- 1. degenerate triangles ----
   let { indices, vertexCount } = weldVertices(p);
@@ -27,6 +27,20 @@ export function repairMesh(p) {
     }
     tris.push([a, b, c]);
   }
+
+  // ---- 1b. duplicate triangles (same three corners, either winding) ----
+  // Exporters often write a face twice; every edge of it then has 3+ faces (non-manifold).
+  // Keep one copy: step 2 sorts out which way it should face.
+  const seen = new Set();
+  tris = tris.filter(([a, b, c]) => {
+    const key = [a, b, c].sort((x, y) => x - y).join(',');
+    if (seen.has(key)) {
+      report.duplicatesRemoved++;
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 
   // ---- 2. consistent orientation ----
   const edgeKey = (a, b) => (a < b ? a * vertexCount + b : b * vertexCount + a);
@@ -127,16 +141,21 @@ export function repairMesh(p) {
         report.holesSkipped++;
         continue;
       }
-      // fan from the loop's centre point
-      let cx = 0, cy = 0, cz = 0;
-      for (const v of loop) { cx += coords[v * 3]; cy += coords[v * 3 + 1]; cz += coords[v * 3 + 2]; }
-      const centre = [cx / loop.length, cy / loop.length, cz / loop.length];
-      const ci = vertexCount + extra.length / 3;
-      extra.push(...centre);
-      for (let i = 0; i < loop.length; i++) {
-        added.push([loop[i], loop[(i + 1) % loop.length], ci]);
+      // Holes that touch at a corner come back as one figure-8 walk. Filling that with a single
+      // fan would put two faces on the same spoke, so split it into simple loops first.
+      for (const hole of splitAtRepeats(loop)) {
+        if (hole.length < 3) continue;
+        // fan from the loop's centre point
+        let cx = 0, cy = 0, cz = 0;
+        for (const v of hole) { cx += coords[v * 3]; cy += coords[v * 3 + 1]; cz += coords[v * 3 + 2]; }
+        const centre = [cx / hole.length, cy / hole.length, cz / hole.length];
+        const ci = vertexCount + extra.length / 3;
+        extra.push(...centre);
+        for (let i = 0; i < hole.length; i++) {
+          added.push([hole[i], hole[(i + 1) % hole.length], ci]);
+        }
+        report.holesFilled++;
       }
-      report.holesFilled++;
     }
   }
   report.trianglesAdded = added.length;
@@ -152,8 +171,28 @@ export function repairMesh(p) {
     for (let k = 0; k < 3; k++) for (let d = 0; d < 3; d++) out[t * 9 + k * 3 + d] = allCoords[tri[k] * 3 + d];
     if (t >= tris.length) addedMask[t] = 1;
   });
-  report.changed = report.degenerateRemoved + report.facesFlipped + report.partsTurnedRightSideOut + report.holesFilled > 0;
+  report.changed = report.degenerateRemoved + report.duplicatesRemoved + report.facesFlipped + report.partsTurnedRightSideOut + report.holesFilled > 0;
   return { positions: out, report, addedMask };
+}
+
+// Split a closed walk that passes through some vertex more than once into simple loops.
+function splitAtRepeats(walk) {
+  const loops = [];
+  const stack = [];
+  const at = new Map(); // vertex → its position in the stack
+  for (const v of walk) {
+    if (at.has(v)) {
+      const i = at.get(v);
+      const sub = stack.splice(i + 1);
+      for (const s of sub) at.delete(s);
+      loops.push([v, ...sub]);
+    } else {
+      at.set(v, stack.length);
+      stack.push(v);
+    }
+  }
+  loops.push(stack);
+  return loops;
 }
 
 function triArea2(c, a, b, d) {
