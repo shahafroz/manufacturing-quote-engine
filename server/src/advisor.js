@@ -8,17 +8,28 @@ const getClient = () => (client ??= new GoogleGenAI({ apiKey: process.env.GEMINI
 
 // Gemini returns 503 (overloaded) or 429 (rate limited) during demand spikes. Retry the main
 // model once after a short pause, then try the lighter fallback model, then give a clean error.
+// Under load a model can also just hang without answering, so each call gets a time limit; a
+// model that times out is skipped (no retry) and the next one is tried.
 const BUSY = new Set([429, 500, 503]);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function generateWithRetry(call, models, { delayMs = 1500, sleep = wait } = {}) {
+export async function generateWithRetry(call, models, { delayMs = 1500, timeoutMs = 15000, sleep = wait } = {}) {
   const tries = [models[0], models[0], ...models.slice(1)];
   for (let i = 0; i < tries.length; i++) {
+    const ctrl = new AbortController();
+    const timedOut = new Promise((_, reject) => ctrl.signal.addEventListener('abort', () => reject(ctrl.signal.reason)));
+    const timer = setTimeout(() => ctrl.abort(new Error('timeout')), timeoutMs);
     try {
-      return await call(tries[i]);
+      return await Promise.race([call(tries[i], ctrl.signal), timedOut]);
     } catch (e) {
+      if (ctrl.signal.aborted) {
+        while (tries[i + 1] === tries[i]) i++;
+        continue;
+      }
       if (!BUSY.has(e.status)) throw e;
       if (i < tries.length - 1) await sleep(delayMs);
+    } finally {
+      clearTimeout(timer);
     }
   }
   const err = new Error('The AI advisor is busy right now. Please try again in a minute.');
@@ -44,7 +55,7 @@ Reply as JSON with materialId (one of the ids above) and reason (max 40 words, m
   let feedback = '';
   for (let attempt = 0; attempt < 2; attempt++) {
     const models = [process.env.GEMINI_MODEL || 'gemini-3.8-flash', process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite'];
-    const res = await generateWithRetry((model) => getClient().models.generateContent({
+    const res = await generateWithRetry((model, abortSignal) => getClient().models.generateContent({
       model,
       contents: base + feedback,
       config: {
@@ -55,6 +66,7 @@ Reply as JSON with materialId (one of the ids above) and reason (max 40 words, m
           required: ['materialId', 'reason'],
         },
         temperature: 0.2,
+        abortSignal,
       },
     }), models);
     let out;
