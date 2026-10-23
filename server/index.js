@@ -21,6 +21,11 @@ app.use(express.json({ limit: '2mb' }));
 
 const status = { materials: 'starting', quotes: 'starting' };
 
+// Opening the API's bare URL shows a short status instead of Express's "Cannot GET /"
+app.get('/', (req, res) => {
+  res.json({ name: 'Manufacturing Quote Engine API', ok: true, health: '/api/health' });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, ...status, ai: Boolean(process.env.GEMINI_API_KEY), s3: s3Enabled() });
 });
