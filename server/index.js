@@ -21,8 +21,11 @@ app.use(express.json({ limit: '2mb' }));
 
 const status = { materials: 'starting', quotes: 'starting' };
 
-// Opening the API's bare URL shows a short status instead of Express's "Cannot GET /"
+// Opening the API's bare URL sends visitors to the deployed website (the first https CLIENT_URL).
+// Without one (e.g. locally) it shows a short status instead of Express's "Cannot GET /".
 app.get('/', (req, res) => {
+  const site = allowed.find((url) => url.startsWith('https://'));
+  if (site) return res.redirect(site);
   res.json({ name: 'Manufacturing Quote Engine API', ok: true, health: '/api/health' });
 });
 

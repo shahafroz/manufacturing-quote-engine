@@ -2,7 +2,7 @@
 
 Upload an STL, inspect it in 3D, and get an instant quote for **3D printing and CNC machining**. The geometry engine, the mesh checks and a mini slicer are written from scratch and checked against **PrusaSlicer**, the slicer real print shops use.
 
-**Live demo:** _add your Vercel link_ · **Stack:** React (Vite), Three.js / react-three-fiber, Web Workers, Node/Express, PostgreSQL, MongoDB, Gemini API, AWS S3, Vitest, GitHub Actions, Docker
+**Live demo:** [manufacturing-quote-engine.vercel.app](https://manufacturing-quote-engine.vercel.app) · **Stack:** React (Vite), Three.js / react-three-fiber, Web Workers, Node/Express, PostgreSQL, MongoDB, Gemini API, AWS S3, Vitest, GitHub Actions, Docker
 
 <!-- Add a 60-second demo GIF here: docs/demo.gif -->
 
