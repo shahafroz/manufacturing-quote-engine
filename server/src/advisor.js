@@ -6,28 +6,20 @@ import { GoogleGenAI } from '@google/genai';
 let client = null;
 const getClient = () => (client ??= new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }));
 
-// Gemini returns 503 (overloaded) or 429 (rate limited) during demand spikes. Retry the main
-// model once after a short pause, then try the lighter fallback model, then give a clean error.
-// Under load a model can also just hang without answering, so each call gets a time limit; a
-// model that times out is skipped (no retry) and the next one is tried.
+// During demand spikes Gemini returns 503 (overloaded) or 429 (rate limited), or just hangs
+// without answering. So each model gets one try with a time limit; if it is busy or too slow,
+// the next (lighter, faster) model is tried, and if all fail the user gets a clean error.
 const BUSY = new Set([429, 500, 503]);
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function generateWithRetry(call, models, { delayMs = 1500, timeoutMs = 15000, sleep = wait } = {}) {
-  const tries = [models[0], models[0], ...models.slice(1)];
-  for (let i = 0; i < tries.length; i++) {
+export async function generateWithRetry(call, models, { timeoutMs = 10000 } = {}) {
+  for (const model of models) {
     const ctrl = new AbortController();
     const timedOut = new Promise((_, reject) => ctrl.signal.addEventListener('abort', () => reject(ctrl.signal.reason)));
     const timer = setTimeout(() => ctrl.abort(new Error('timeout')), timeoutMs);
     try {
-      return await Promise.race([call(tries[i], ctrl.signal), timedOut]);
+      return await Promise.race([call(model, ctrl.signal), timedOut]);
     } catch (e) {
-      if (ctrl.signal.aborted) {
-        while (tries[i + 1] === tries[i]) i++;
-        continue;
-      }
-      if (!BUSY.has(e.status)) throw e;
-      if (i < tries.length - 1) await sleep(delayMs);
+      if (!ctrl.signal.aborted && !BUSY.has(e.status)) throw e;
     } finally {
       clearTimeout(timer);
     }
