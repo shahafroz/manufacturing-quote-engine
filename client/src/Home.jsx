@@ -36,7 +36,7 @@ export default function Home() {
         <div className="brand" onClick={() => go('/')}>
           <span className="logo" aria-hidden="true">M</span>
           <div>
-            <h1>Manufacturing Quote Engine</h1>
+            <h1>3D Manufacturing Quote Engine</h1>
             <p>Instant 3D printing &amp; CNC quotes</p>
           </div>
         </div>

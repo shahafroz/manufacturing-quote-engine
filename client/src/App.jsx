@@ -274,7 +274,7 @@ export default function App() {
         <div className="brand" onClick={() => go('/')} title="Home">
           <span className="logo" aria-hidden="true">M</span>
           <div>
-            <h1>Manufacturing Quote Engine</h1>
+            <h1>3D Manufacturing Quote Engine</h1>
             <p>Instant 3D printing &amp; CNC quotes</p>
           </div>
         </div>

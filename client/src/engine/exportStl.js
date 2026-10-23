@@ -1,6 +1,6 @@
 // Write positions back out as a binary STL (the same format parseStl reads):
 // 80-byte header, triangle count, then 50 bytes per triangle with a computed normal.
-export function toBinaryStl(p, header = 'Manufacturing Quote Engine') {
+export function toBinaryStl(p, header = '3D Manufacturing Quote Engine') {
   const n = p.length / 9;
   const buf = new ArrayBuffer(84 + 50 * n);
   const view = new DataView(buf);

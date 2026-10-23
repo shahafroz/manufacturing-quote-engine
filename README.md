@@ -1,4 +1,4 @@
-# Manufacturing Quote Engine
+# 3D Manufacturing Quote Engine
 
 Upload an STL, inspect it in 3D, and get an instant quote for **3D printing and CNC machining**. The geometry engine, the mesh checks and a mini slicer are written from scratch and checked against **PrusaSlicer**, the slicer real print shops use.
 

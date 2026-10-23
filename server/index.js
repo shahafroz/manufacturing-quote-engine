@@ -26,7 +26,7 @@ const status = { materials: 'starting', quotes: 'starting' };
 app.get('/', (req, res) => {
   const site = allowed.find((url) => url.startsWith('https://'));
   if (site) return res.redirect(site);
-  res.json({ name: 'Manufacturing Quote Engine API', ok: true, health: '/api/health' });
+  res.json({ name: '3D Manufacturing Quote Engine API', ok: true, health: '/api/health' });
 });
 
 app.get('/api/health', (req, res) => {
